@@ -1,0 +1,26 @@
+{
+  "name": "rho-gui-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "bindings": "node scripts/bindings.mjs",
+    "dev": "vite",
+    "build": "node scripts/bindings.mjs && vite build --mode production",
+    "check": "node scripts/bindings.mjs && svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@wailsio/runtime": "3.1.0",
+    "highlight.js": "^11.12.0",
+    "markdown-it": "^15.0.3"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "@types/markdown-it": "^14.2.0",
+    "svelte": "^5.58.0",
+    "svelte-check": "^4.7.8",
+    "tslib": "^2.9.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.8"
+  }
+}
