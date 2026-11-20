@@ -1,7 +1,7 @@
 // Frontend state: the transcript and status, updated from core events.
 
-import { Bridge } from "../../bindings/github.com/NDari/rho/gui/bridge";
-import type { State } from "../../bindings/github.com/NDari/rho/gui/bridge";
+import { Bridge } from "../../bindings/github.com/NDari/rho-gui/bridge";
+import type { State } from "../../bindings/github.com/NDari/rho-gui/bridge";
 import type { CoreEvent, Item, Message, NewItem, ToolState } from "./types";
 
 const maxToolOutput = 256 * 1024;

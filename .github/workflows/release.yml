@@ -1,0 +1,78 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      # The bundled rho reports the Rho version it was built from.
+      - name: Find the Rho version
+        run: |
+          v=$(go list -m -f '{{.Version}}' github.com/NDari/rho)
+          echo "RHO_VERSION=${v#v}" >> "$GITHUB_ENV"
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+      # The macOS archive is not published; Rho.app is built from it.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-gui
+          path: dist/rho-gui_*_darwin_arm64.tar.gz
+          if-no-files-found: error
+
+  # Wraps the macOS binaries into Rho.app, adds it and its checksum to the
+  # draft release and publishes the release.
+  macos-app:
+    needs: release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: macos-gui
+          path: dist
+      - name: Build Rho.app
+        run: sh build/darwin/bundle.sh "${GITHUB_REF_NAME#v}" dist
+        env:
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ secrets.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+      - name: Add Rho.app to the checksums
+        run: |
+          gh release download "$GITHUB_REF_NAME" --pattern checksums.txt --dir dist
+          cd dist
+          shasum -a 256 Rho_*_macos.zip >> checksums.txt
+          cat checksums.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Rho.app and publish the release
+        run: |
+          gh release upload "$GITHUB_REF_NAME" dist/Rho_*_macos.zip dist/checksums.txt --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -10,16 +10,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"github.com/NDari/rho-gui/bridge"
 	"github.com/NDari/rho/core/app"
 	"github.com/NDari/rho/core/config"
 	"github.com/NDari/rho/core/ext/yaegihost"
 	"github.com/NDari/rho/core/update"
-	"github.com/NDari/rho/gui/bridge"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".
@@ -30,6 +31,16 @@ var assets embed.FS
 
 //go:embed build/appicon.png
 var icon []byte
+
+// product is how rho-gui is released: archives that hold rho-gui and the
+// rho it was built with, and Rho.app on macOS.
+var product = update.Product{
+	Repo:     "NDari/rho-gui",
+	Archive:  "rho-gui",
+	Programs: []string{"rho-gui", "rho"},
+	App:      "Rho",
+	State:    "update-gui.json",
+}
 
 // appID identifies the application to the desktop. On Linux it must match
 // the name of the .desktop file (build/linux), which provides the icon.
@@ -171,7 +182,7 @@ func updater(cwd string) (bridge.Updater, bool) {
 	if err != nil {
 		return bridge.Updater{}, false
 	}
-	return bridge.Updater{Checker: &update.Checker{Current: cur, Home: paths.Home}, Exe: exe}, true
+	return bridge.Updater{Checker: &update.Checker{Current: cur, Product: product, Home: paths.Home}, Exe: exe}, true
 }
 
 // restartPlan starts the updated GUI after this one has quit.
@@ -208,9 +219,9 @@ func workDir(arg string) (string, error) {
 }
 
 // extHost finds a rho binary to run Go source extensions: next to this
-// executable, else on PATH when it has the same version. Starting rho-gui
-// itself as the extension host works too, but loads the GUI libraries in
-// every extension process. It returns "" (use this executable) when no
+// executable, else on PATH when it was built from the same Rho version.
+// Starting rho-gui itself as the extension host works too, but loads the
+// GUI libraries in every extension process. It returns "" (use this executable) when no
 // matching rho is found.
 func extHost() string {
 	name := "rho"
@@ -232,10 +243,30 @@ func extHost() string {
 	cmd := exec.Command(path, "--version")
 	hideConsole(cmd)
 	out, err := cmd.Output()
-	if err != nil || strings.TrimSpace(string(out)) != "rho version "+version {
+	core := coreVersion()
+	if err != nil || core == "" || strings.TrimSpace(string(out)) != "rho version "+core {
 		return ""
 	}
 	return path
+}
+
+// coreVersion is the version of Rho this program was built with, or ""
+// when it is not a released one.
+func coreVersion() string {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	for _, m := range bi.Deps {
+		if m.Path == "github.com/NDari/rho" {
+			// Pseudo-versions and pre-releases have a "-".
+			if m.Replace != nil || !strings.HasPrefix(m.Version, "v") || strings.Contains(m.Version, "-") {
+				return ""
+			}
+			return strings.TrimPrefix(m.Version, "v")
+		}
+	}
+	return ""
 }
 
 // host adapts the Wails application to bridge.Host.

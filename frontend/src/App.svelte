@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { Application, Browser, Events } from "@wailsio/runtime";
-  import { Bridge } from "../bindings/github.com/NDari/rho/gui/bridge";
-  import type { Command, StartupInfo } from "../bindings/github.com/NDari/rho/gui/bridge";
+  import { Bridge } from "../bindings/github.com/NDari/rho-gui/bridge";
+  import type { Command, StartupInfo } from "../bindings/github.com/NDari/rho-gui/bridge";
   import { store } from "./lib/store.svelte";
   import type { CoreEvent } from "./lib/types";
   import { humanBytes, humanTokens, oneLine, setHome, shortenHome, time } from "./lib/format";

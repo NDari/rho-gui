@@ -1,3 +1,9 @@
 /rho-gui
 /rho-gui.exe
 /rsrc_windows_*.syso
+/bin/
+/dist/
+/.task/
+# go.work links a local rho checkout for development.
+/go.work
+/go.work.sum

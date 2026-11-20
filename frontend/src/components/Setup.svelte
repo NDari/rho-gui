@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Clipboard } from "@wailsio/runtime";
-  import type { StartupInfo } from "../../bindings/github.com/NDari/rho/gui/bridge";
+  import type { StartupInfo } from "../../bindings/github.com/NDari/rho-gui/bridge";
   import { shortenHome } from "../lib/format";
 
   // Shown instead of the transcript when the project could not be opened,

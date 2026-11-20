@@ -1,0 +1,80 @@
+# Development tasks for https://taskfile.dev. Run `task --list` to see them.
+# Builds go to bin/. Arguments after `--` are passed on, for example
+# `task gui -- path/to/project`.
+version: "3"
+
+vars:
+  RHO: bin/rho{{exeExt}}
+  RHO_GUI: bin/rho-gui{{exeExt}}
+  # The GUI must not open a console window on Windows.
+  GUI_LDFLAGS: '{{if eq OS "windows"}}-H windowsgui{{end}}'
+
+env:
+  # Wails' pure-Go backend; with cgo some Wails packages need GTK headers.
+  CGO_ENABLED: "0"
+
+tasks:
+  gui:
+    desc: Build rho-gui and open the folder you ran task from
+    deps: [build]
+    dir: "{{.USER_WORKING_DIR}}"
+    cmds:
+      - "{{.ROOT_DIR}}/{{.RHO_GUI}} {{.CLI_ARGS}}"
+
+  build:
+    desc: Build rho-gui, and the rho it runs extensions with, into bin/
+    deps: [frontend]
+    cmds:
+      - go build -tags purego,production -ldflags "{{.GUI_LDFLAGS}}" -o {{.RHO_GUI}} .
+      - go build -o {{.RHO}} github.com/NDari/rho/cmd/rho
+
+  install:
+    desc: Install rho-gui into Go's bin folder
+    deps: [frontend]
+    vars:
+      GOBIN:
+        sh: go env GOBIN
+      GOPATH:
+        sh: go env GOPATH
+      BIN: '{{if .GOBIN}}{{.GOBIN}}{{else}}{{.GOPATH}}/bin{{end}}'
+    cmds:
+      - go build -tags purego,production -ldflags "{{.GUI_LDFLAGS}}" -o "{{.BIN}}/rho-gui{{exeExt}}" .
+      - echo "Installed rho-gui in {{.BIN}}"
+
+  test:
+    desc: Check the frontend and run the Go tests
+    # The GUI embeds the built frontend, so it must exist first.
+    deps: [frontend]
+    cmds:
+      - npm --prefix frontend run check
+      - go test -tags purego ./...
+
+  frontend:
+    internal: true
+    deps: [npm]
+    dir: frontend
+    sources:
+      - index.html
+      - package.json
+      - "*.config.js"
+      - "*.config.ts"
+      - tsconfig.json
+      - scripts/**
+      - src/**
+      # The TypeScript bindings are generated from the Go bridge.
+      - ../bridge/**/*.go
+      - ../main.go
+    generates:
+      - dist/index.html
+    cmds:
+      - npm run build
+
+  npm:
+    internal: true
+    dir: frontend
+    sources:
+      - package-lock.json
+    generates:
+      - node_modules/.package-lock.json
+    cmds:
+      - npm ci

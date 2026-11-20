@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Bridge } from "../../bindings/github.com/NDari/rho/gui/bridge";
+  import { Bridge } from "../../bindings/github.com/NDari/rho-gui/bridge";
 
   // Offers a newer version: installs it and restarts the window in the
   // same folder and session.

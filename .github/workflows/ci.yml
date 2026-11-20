@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # Wails' pure-Go backend; with cgo some Wails packages need GTK headers.
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+      - name: Check frontend
+        run: npm run check
+        working-directory: frontend
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+      - name: Vet
+        run: go vet -tags purego ./...
+      - name: Test
+        # The bridge does not import Wails, so it can use the race detector.
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race ./bridge/...
+      - name: Build for each platform
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/arm64 windows/amd64; do
+            GOOS=${target%/*} GOARCH=${target#*/} go build -tags purego,production -o /dev/null .
+            GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null github.com/NDari/rho/cmd/rho
+          done
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          args: --build-tags purego
