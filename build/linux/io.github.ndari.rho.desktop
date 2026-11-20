@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Rho
+GenericName=Coding agent
+Comment=A minimal-core coding agent
+Exec=rho-gui
+Icon=io.github.ndari.rho
+Terminal=false
+Categories=Development;
+StartupWMClass=io.github.ndari.rho
+StartupNotify=true

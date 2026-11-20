@@ -26,6 +26,13 @@ var version = "dev"
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed build/appicon.png
+var icon []byte
+
+// appID identifies the application to the desktop. On Linux it must match
+// the name of the .desktop file (build/linux), which provides the icon.
+const appID = "io.github.ndari.rho"
+
 func main() {
 	// Go source extensions run as "<rho binary> ext-host <path>".
 	if len(os.Args) == 3 && os.Args[1] == "ext-host" {
@@ -95,6 +102,8 @@ func run() error {
 	wapp := application.New(application.Options{
 		Name:        "Rho",
 		Description: "A minimal-core coding agent",
+		Icon:        icon,
+		Linux:       application.LinuxOptions{ApplicationID: appID},
 		Services:    []application.Service{application.NewService(b)},
 		Assets:      application.AssetOptions{Handler: application.AssetFileServerFS(assets)},
 		Mac:         application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true},
