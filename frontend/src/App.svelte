@@ -13,6 +13,7 @@
   import Dialog, { type DialogSpec } from "./components/Dialog.svelte";
   import SearchBar from "./components/SearchBar.svelte";
   import Setup from "./components/Setup.svelte";
+  import UpdatePrompt from "./components/UpdatePrompt.svelte";
 
   interface UIRequest {
     id: number;
@@ -71,6 +72,8 @@
   // startup is set when the project could not be opened.
   let startup: StartupInfo | null = $state(null);
   let search: { initial: string } | null = $state(null);
+  // update is a newer version that can be installed ("" for none).
+  let update = $state("");
   let searchBar: ReturnType<typeof SearchBar> | undefined = $state();
 
   // Theme: "system", "light" or "dark", kept in local storage.
@@ -303,6 +306,18 @@
       location.reload();
       return "";
     } catch (err) {
+      return errText(err);
+    }
+  }
+
+  // createConfig writes the example configuration and opens the project.
+  async function createConfig(): Promise<string> {
+    try {
+      await Bridge.CreateConfig();
+      location.reload();
+      return "";
+    } catch (err) {
+      startup = await Bridge.Startup();
       return errText(err);
     }
   }
@@ -630,6 +645,9 @@
     const offUI = Events.On("rho:ui", (ev: { data: UIRequest }) => {
       uiQueue = [...uiQueue, ev.data];
     });
+    const offUpdate = Events.On("rho:update", (ev: { data: string }) => {
+      update = ev.data;
+    });
     const ro = new ResizeObserver(() => {
       if (follow && scroller) scroller.scrollTop = scroller.scrollHeight;
     });
@@ -637,6 +655,7 @@
 
     void (async () => {
       setHome(await Bridge.HomeDir());
+      update = await Bridge.UpdateAvailable();
       const info = await Bridge.Startup();
       if (info.error) {
         startup = info;
@@ -654,6 +673,7 @@
     return () => {
       offEvents();
       offUI();
+      offUpdate();
       ro.disconnect();
     };
   });
@@ -662,7 +682,13 @@
 <svelte:window onkeydown={globalKey} />
 
 {#if startup}
-  <Setup info={startup} onretry={retry} onopen={() => openFolder("")} onconfig={openConfig} />
+  <Setup
+    info={startup}
+    onretry={retry}
+    onopen={() => openFolder("")}
+    onconfig={openConfig}
+    oncreate={createConfig}
+  />
 {:else}
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 <main onclick={linkClick}>
@@ -727,6 +753,9 @@
 {/if}
 {#if dialog}
   <Dialog spec={dialog} />
+{/if}
+{#if update}
+  <UpdatePrompt version={update} busy={store.busy} onlater={() => (update = "")} />
 {/if}
 
 <style>

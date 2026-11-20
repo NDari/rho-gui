@@ -16,7 +16,9 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/NDari/rho/core/app"
+	"github.com/NDari/rho/core/config"
 	"github.com/NDari/rho/core/ext/yaegihost"
+	"github.com/NDari/rho/core/update"
 	"github.com/NDari/rho/gui/bridge"
 )
 
@@ -99,6 +101,26 @@ func run() error {
 
 	h := &host{}
 	b := bridge.New(h, open, cwd)
+	var restart *restartPlan
+	if u, ok := updater(cwd); ok {
+		u.Restart = func(res update.Result, args []string) {
+			restart = &restartPlan{res: res, args: args}
+			if a := h.app.Load(); a != nil {
+				a.Quit()
+			}
+		}
+		u.Args = func(dir, session string) []string {
+			var args []string
+			if session != "" {
+				args = append(args, "-session", session)
+			}
+			if *noExt {
+				args = append(args, "-no-extensions")
+			}
+			return append(args, dir)
+		}
+		bridge.EnableUpdates(b, u)
+	}
 	wapp := application.New(application.Options{
 		Name:        "Rho",
 		Description: "A minimal-core coding agent",
@@ -118,7 +140,44 @@ func run() error {
 		BackgroundColour: application.NewRGB(29, 32, 33),
 		URL:              "/",
 	}))
-	return wapp.Run()
+	if err := wapp.Run(); err != nil {
+		return err
+	}
+	if restart != nil {
+		return restart.start()
+	}
+	return nil
+}
+
+// updater sets up update checks for release builds, unless they are
+// turned off.
+func updater(cwd string) (bridge.Updater, bool) {
+	cur := update.Detect(version)
+	// Only release builds update themselves; the GUI is not installed
+	// with go install.
+	if cur.Method != update.Archive {
+		return bridge.Updater{}, false
+	}
+	paths, err := config.ResolvePaths(cwd)
+	if err != nil {
+		return bridge.Updater{}, false
+	}
+	// A broken config file still yields the settings read so far.
+	cfg, _, _ := config.Load(paths)
+	if !update.Enabled(cur, cfg) {
+		return bridge.Updater{}, false
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return bridge.Updater{}, false
+	}
+	return bridge.Updater{Checker: &update.Checker{Current: cur, Home: paths.Home}, Exe: exe}, true
+}
+
+// restartPlan starts the updated GUI after this one has quit.
+type restartPlan struct {
+	res  update.Result
+	args []string
 }
 
 // workDir picks the project directory: the argument, else the current
@@ -170,7 +229,9 @@ func extHost() string {
 	if err != nil {
 		return ""
 	}
-	out, err := exec.Command(path, "--version").Output()
+	cmd := exec.Command(path, "--version")
+	hideConsole(cmd)
+	out, err := cmd.Output()
 	if err != nil || strings.TrimSpace(string(out)) != "rho version "+version {
 		return ""
 	}

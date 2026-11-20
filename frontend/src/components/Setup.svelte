@@ -10,22 +10,16 @@
     onretry,
     onopen,
     onconfig,
+    oncreate,
   }: {
     info: StartupInfo;
     onretry: () => Promise<string>;
     onopen: () => Promise<string>;
     onconfig: () => Promise<string>;
+    oncreate: () => Promise<string>;
   } = $props();
 
-  const example = `default_model = "local"
-
-[providers.local]
-base_url = "http://localhost:8080/v1"
-
-[[models]]
-id = "local"
-provider = "local"
-context_window = 65536`;
+  const example = $derived(info.example.trimEnd());
 
   let problem = $state("");
   let copied = $state(false);
@@ -41,7 +35,8 @@ context_window = 65536`;
   <pre class="error">{info.error}</pre>
   <p>
     Rho was opening <b>{shortenHome(info.dir)}</b>. If no model is configured yet, add one to
-    <code>{shortenHome(info.config_path)}</code>, for example for a local OpenAI-compatible server:
+    <code>{shortenHome(info.config_path)}</code>, for example for a local OpenAI-compatible server such as
+    llama.cpp's <code>llama-server</code> on its default port 9931 (older versions use 8080):
   </p>
   <div class="example">
     <pre>{example}</pre>
@@ -60,9 +55,12 @@ context_window = 65536`;
     <code>-m openai/&lt;model-name&gt;</code>. See the configuration guide in the Rho documentation for all settings.
   </p>
   <div class="actions">
-    <button class="primary" onclick={() => void run(onretry)}>Try again</button>
     {#if info.config_exists}
+      <button class="primary" onclick={() => void run(onretry)}>Try again</button>
       <button onclick={() => void run(onconfig)}>Open the config file</button>
+    {:else}
+      <button class="primary" onclick={() => void run(oncreate)}>Create the config file with this example</button>
+      <button onclick={() => void run(onretry)}>Try again</button>
     {/if}
     <button onclick={() => void run(onopen)}>Open another folder…</button>
   </div>

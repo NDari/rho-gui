@@ -22,6 +22,7 @@ type fakeHost struct {
 	clipboard string
 	title     string
 	folder    string
+	updates   []string
 }
 
 func newFakeHost() *fakeHost { return &fakeHost{uiReqs: make(chan UIRequest, 4)} }
@@ -40,6 +41,10 @@ func (h *fakeHost) Emit(name string, data any) {
 		}
 	case EventUIRequest:
 		h.uiReqs <- data.(UIRequest)
+	case EventUpdate:
+		h.mu.Lock()
+		h.updates = append(h.updates, data.(string))
+		h.mu.Unlock()
 	}
 }
 

@@ -1,12 +1,11 @@
 #!/bin/sh
-# Builds Rho.app, a universal (Intel and Apple silicon) app containing
-# rho-gui and rho, from the darwin release archives, signs it and, when the
-# Apple credentials are set, notarizes it. Runs on macOS (it needs lipo,
-# codesign and ditto).
+# Builds Rho.app (Apple silicon) containing rho-gui and rho from the
+# darwin release archive, signs it and, when the Apple credentials are
+# set, notarizes it. Runs on macOS (it needs codesign and ditto).
 #
 # Usage: sh bundle.sh VERSION DIR
-#   DIR holds rho-gui_VERSION_darwin_amd64.tar.gz and ..._arm64.tar.gz;
-#   Rho_VERSION_macos.zip is written there.
+#   DIR holds rho-gui_VERSION_darwin_arm64.tar.gz; Rho_VERSION_macos.zip
+#   is written there.
 #
 # Signing uses a Developer ID Application certificate when MACOS_SIGN_P12
 # (the .p12 file, base64) and MACOS_SIGN_PASSWORD are set, and an ad-hoc
@@ -29,15 +28,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for arch in amd64 arm64; do
-  mkdir "$work/$arch"
-  tar -xzf "$dir/rho-gui_${version}_darwin_$arch.tar.gz" -C "$work/$arch"
-done
+mkdir "$work/arm64"
+tar -xzf "$dir/rho-gui_${version}_darwin_arm64.tar.gz" -C "$work/arm64"
 
 app="$work/Rho.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 for bin in rho-gui rho; do
-  lipo -create -output "$app/Contents/MacOS/$bin" "$work/amd64/$bin" "$work/arm64/$bin"
+  cp "$work/arm64/$bin" "$app/Contents/MacOS/$bin"
 done
 cp "$here/icons.icns" "$app/Contents/Resources/icons.icns"
 sed "s/@VERSION@/$version/g" "$here/Info.plist" > "$app/Contents/Info.plist"

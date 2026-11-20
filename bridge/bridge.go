@@ -82,6 +82,8 @@ type Bridge struct {
 	asks    map[int64]chan reply
 	nextAsk int64
 
+	upd updates
+
 	stop chan struct{}
 	done chan struct{}
 }
@@ -200,15 +202,18 @@ type StartupInfo struct {
 	ConfigPath string `json:"config_path"`
 	// ConfigExists reports whether ConfigPath exists.
 	ConfigExists bool `json:"config_exists"`
+	// Example is a starting configuration for a local server.
+	Example string `json:"example"`
 }
 
 // Startup reports whether a project is open. The frontend calls it before
 // anything else; when Error is set, only Startup, Retry, Open,
-// ChooseFolder, OpenConfig and HomeDir may be used.
+// ChooseFolder, OpenConfig, CreateConfig, HomeDir and the update methods
+// may be used.
 func (b *Bridge) Startup() StartupInfo {
 	b.switching.Lock()
 	defer b.switching.Unlock()
-	info := StartupInfo{Error: b.startErr, Dir: b.dir}
+	info := StartupInfo{Error: b.startErr, Dir: b.dir, Example: config.Example}
 	if home, err := config.HomeDir(); err == nil {
 		info.ConfigPath = filepath.Join(home, "config.toml")
 		_, err := os.Stat(info.ConfigPath)
