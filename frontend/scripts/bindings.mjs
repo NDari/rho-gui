@@ -14,5 +14,6 @@ if (!existsSync(join(dist, "index.html"))) {
 execFileSync(
   "go",
   ["tool", "wails3", "generate", "bindings", "-ts", "-i", "-f", "-tags=purego", "-d", "frontend/bindings", "."],
-  { cwd: join(frontend, ".."), stdio: "inherit" },
+  // Without cgo, neither the wails3 tool nor the app needs the GTK headers.
+  { cwd: join(frontend, ".."), stdio: "inherit", env: { ...process.env, CGO_ENABLED: "0" } },
 );
