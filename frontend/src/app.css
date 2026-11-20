@@ -258,3 +258,12 @@ pre.code {
 .hljs-deletion {
   color: var(--hl-meta);
 }
+
+/* Transcript search (Ctrl+F). */
+::highlight(rho-search) {
+  background-color: rgba(250, 189, 47, 0.3);
+}
+::highlight(rho-search-current) {
+  background-color: var(--accent);
+  color: var(--accent-fg);
+}

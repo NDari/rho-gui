@@ -13,6 +13,7 @@
     aside,
     commands,
     draft = $bindable(),
+    files,
     onsubmit,
     oncancel,
   }: {
@@ -20,13 +21,27 @@
     aside: boolean;
     commands: CommandInfo[];
     draft: string | null;
+    files: (partial: string) => Promise<string[] | null>;
     onsubmit: (text: string, followUp: boolean) => void;
     oncancel: () => void;
   } = $props();
 
+  // A completion replaces the text from `start` to the caret with `insert`.
+  interface Completion {
+    label: string;
+    detail: string;
+    insert: string;
+    start: number;
+  }
+
   let value = $state("");
+  let caret = $state(0);
   let el: HTMLTextAreaElement | undefined = $state();
   let compCursor = $state(0);
+  // dismissed hides completions (Esc) until the text changes.
+  let dismissed = $state(false);
+  let fileComps: Completion[] = $state([]);
+  let fileSeq = 0;
   const history = new History();
 
   export function focus() {
@@ -36,7 +51,10 @@
   // Put drafts (rewound messages, leftover queue) into the editor.
   $effect(() => {
     if (draft != null) {
-      if (!value.trim()) value = draft;
+      if (!value.trim()) {
+        value = draft;
+        caret = value.length;
+      }
       draft = null;
       queueMicrotask(() => {
         resize();
@@ -45,10 +63,38 @@
     }
   });
 
-  const completions = $derived.by(() => {
+  // The @path being typed before the caret, if any.
+  const fileToken = $derived.by(() => {
+    const m = /(?:^|\s)@(\S*)$/.exec(value.slice(0, caret));
+    return m ? { partial: m[1], start: caret - m[1].length - 1 } : null;
+  });
+
+  $effect(() => {
+    const tok = fileToken;
+    const seq = ++fileSeq;
+    if (!tok) {
+      fileComps = [];
+      return;
+    }
+    void files(tok.partial).then((list) => {
+      if (seq !== fileSeq) return;
+      fileComps = (list ?? []).map((p) => {
+        const dir = p.endsWith("/");
+        return { label: "@" + p, detail: dir ? "folder" : "", insert: "@" + p + (dir ? "" : " "), start: tok.start };
+      });
+    });
+  });
+
+  const completions: Completion[] = $derived.by(() => {
+    if (dismissed) return [];
     const m = /^\/(\S*)$/.exec(value);
-    if (!m) return [];
-    return commands.filter((c) => c.name.startsWith(m[1])).slice(0, 12);
+    if (m) {
+      return commands
+        .filter((c) => c.name.startsWith(m[1]))
+        .slice(0, 12)
+        .map((c) => ({ label: "/" + c.name, detail: c.description, insert: "/" + c.name + " ", start: 0 }));
+    }
+    return fileComps.slice(0, 12);
   });
 
   $effect(() => {
@@ -56,15 +102,27 @@
     compCursor = 0;
   });
 
+  function syncCaret() {
+    if (el) caret = el.selectionStart;
+  }
+
   function resize() {
     if (!el) return;
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, window.innerHeight * 0.4) + "px";
   }
 
-  function accept(c: CommandInfo) {
-    value = "/" + c.name + " ";
-    queueMicrotask(resize);
+  function accept(c: Completion) {
+    const end = c.start === 0 && c.label.startsWith("/") ? value.length : caret;
+    value = value.slice(0, c.start) + c.insert + value.slice(end);
+    const pos = c.start + c.insert.length;
+    caret = pos;
+    queueMicrotask(() => {
+      el?.setSelectionRange(pos, pos);
+      // A keyup may have read the caret before the text changed.
+      caret = pos;
+      resize();
+    });
   }
 
   function submit(followUp: boolean) {
@@ -72,6 +130,7 @@
     if (!text) return;
     history.add(text);
     value = "";
+    caret = 0;
     queueMicrotask(resize);
     onsubmit(text, followUp);
   }
@@ -84,8 +143,15 @@
         e.preventDefault();
         return;
       }
-      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && value !== "/" + comp[compCursor].name)) {
-        accept(comp[compCursor]);
+      const c = comp[compCursor];
+      const exact = c.label.startsWith("/") && value === c.label;
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && !e.altKey && !exact)) {
+        accept(c);
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Escape" && !busy) {
+        dismissed = true;
         e.preventDefault();
         return;
       }
@@ -113,6 +179,7 @@
       const h = history.move(e.key === "ArrowUp" ? 1 : -1, value);
       if (h != null) {
         value = h;
+        caret = h.length;
         e.preventDefault();
         queueMicrotask(resize);
       }
@@ -131,9 +198,9 @@
 <div class="composer" class:busy>
   {#if completions.length > 0}
     <div class="completions">
-      {#each completions as c, i (c.name)}
+      {#each completions as c, i (c.label)}
         <button class="comp" class:sel={i === compCursor} onmousedown={(e) => (e.preventDefault(), accept(c))}>
-          <span class="n">/{c.name}</span><span class="d">{c.description}</span>
+          <span class="n">{c.label}</span><span class="d">{c.detail}</span>
         </button>
       {/each}
     </div>
@@ -143,8 +210,11 @@
     bind:value
     rows="1"
     {placeholder}
-    oninput={() => (history.reset(), resize())}
+    oninput={() => (history.reset(), (dismissed = false), syncCaret(), resize())}
     onkeydown={key}
+    onkeyup={syncCaret}
+    onclick={syncCaret}
+    onselect={syncCaret}
     spellcheck="false"
   ></textarea>
   {#if busy}

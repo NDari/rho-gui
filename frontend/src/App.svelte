@@ -2,7 +2,7 @@
   import { onMount, tick } from "svelte";
   import { Application, Browser, Events } from "@wailsio/runtime";
   import { Bridge } from "../bindings/github.com/NDari/rho/gui/bridge";
-  import type { Command } from "../bindings/github.com/NDari/rho/gui/bridge";
+  import type { Command, StartupInfo } from "../bindings/github.com/NDari/rho/gui/bridge";
   import { store } from "./lib/store.svelte";
   import type { CoreEvent } from "./lib/types";
   import { humanBytes, humanTokens, oneLine, setHome, shortenHome, time } from "./lib/format";
@@ -11,6 +11,8 @@
   import StatusBar from "./components/StatusBar.svelte";
   import Picker, { type PickAction, type PickItem } from "./components/Picker.svelte";
   import Dialog, { type DialogSpec } from "./components/Dialog.svelte";
+  import SearchBar from "./components/SearchBar.svelte";
+  import Setup from "./components/Setup.svelte";
 
   interface UIRequest {
     id: number;
@@ -33,6 +35,7 @@
   const builtin: CommandInfo[] = [
     { name: "model", description: "switch model" },
     { name: "new", description: "start a new session" },
+    { name: "open", description: "open another project folder [path]" },
     { name: "resume", description: "resume a previous session" },
     { name: "rewind", description: "go back to an earlier message (conversation only)" },
     { name: "fork", description: "copy the conversation up to a message into a new session" },
@@ -65,6 +68,10 @@
   let scroller: HTMLDivElement | undefined = $state();
   let content: HTMLDivElement | undefined = $state();
   let follow = true;
+  // startup is set when the project could not be opened.
+  let startup: StartupInfo | null = $state(null);
+  let search: { initial: string } | null = $state(null);
+  let searchBar: ReturnType<typeof SearchBar> | undefined = $state();
 
   // Theme: "system", "light" or "dark", kept in local storage.
   let themePref = $state(localStorage.getItem("rho.theme") ?? "system");
@@ -199,6 +206,10 @@
         if (!idle(name)) return;
         await resumePicker();
         return;
+      case "open":
+        if (!idle(name)) return;
+        await openFolder(args);
+        return;
       case "rewind":
         if (!idle(name)) return;
         await rewindPicker();
@@ -271,13 +282,63 @@
     if (found === false) store.notice("error", `Unknown command /${name} (see /help)`);
   }
 
+  // openFolder switches to another project, asking for the folder when
+  // dir is empty, and reloads the window. It returns an error message.
+  async function openFolder(dir: string): Promise<string> {
+    try {
+      if (!dir) dir = await Bridge.ChooseFolder();
+      if (!dir) return "";
+      await Bridge.Open(dir);
+      location.reload();
+      return "";
+    } catch (err) {
+      if (!startup) store.notice("error", errText(err));
+      return errText(err);
+    }
+  }
+
+  async function retry(): Promise<string> {
+    try {
+      await Bridge.Retry();
+      location.reload();
+      return "";
+    } catch (err) {
+      return errText(err);
+    }
+  }
+
+  async function openConfig(): Promise<string> {
+    try {
+      await Bridge.OpenConfig();
+      return "";
+    } catch (err) {
+      return errText(err);
+    }
+  }
+
+  function openSearch() {
+    const sel = window.getSelection()?.toString() ?? "";
+    const initial = sel && !sel.includes("\n") ? sel : "";
+    if (search) {
+      searchBar?.focus();
+      return;
+    }
+    follow = false;
+    search = { initial };
+  }
+
+  function closeSearch() {
+    search = null;
+    void tick().then(() => composer?.focus());
+  }
+
   function helpText(): string {
     let s = `**Keys**
 
 - Enter: send · Shift+Enter or Alt+Enter: new line
 - While working: Enter steers (interrupts after the current tool), Alt+Enter queues a follow-up, Esc cancels
-- Ctrl+O: expand all tool output and diffs · Ctrl+T: show thinking
-- ↑/↓ on the first/last line: prompt history · Tab: accept a command completion
+- Ctrl+O: expand all tool output and diffs · Ctrl+T: show thinking · Ctrl+F: find in the conversation
+- ↑/↓ on the first/last line: prompt history · Tab: accept a completion · Esc: hide completions
 - @path attaches a file · start a message with // to send a literal slash
 - Click a tool card's header to expand or collapse it
 
@@ -533,8 +594,11 @@
   }
 
   function globalKey(e: KeyboardEvent) {
-    if (picker || dialog) return;
-    if (e.ctrlKey && e.key === "o") {
+    if (picker || dialog || startup) return;
+    if ((e.ctrlKey || e.metaKey) && e.key === "f") {
+      openSearch();
+      e.preventDefault();
+    } else if (e.ctrlKey && e.key === "o") {
       store.expandAll = !store.expandAll;
       e.preventDefault();
     } else if (e.ctrlKey && e.key === "t") {
@@ -573,6 +637,11 @@
 
     void (async () => {
       setHome(await Bridge.HomeDir());
+      const info = await Bridge.Startup();
+      if (info.error) {
+        startup = info;
+        return;
+      }
       await store.refreshState();
       store.showThinking = !!store.state?.show_thinking;
       for (const w of store.state?.warnings ?? []) store.notice("warn", w);
@@ -592,8 +661,14 @@
 
 <svelte:window onkeydown={globalKey} />
 
+{#if startup}
+  <Setup info={startup} onretry={retry} onopen={() => openFolder("")} onconfig={openConfig} />
+{:else}
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
 <main onclick={linkClick}>
+  {#if search && content && scroller}
+    <SearchBar bind:this={searchBar} root={content} {scroller} initial={search.initial} onclose={closeSearch} />
+  {/if}
   <div class="scroller" bind:this={scroller} onscroll={onScroll}>
     <div class="transcript" bind:this={content}>
       {#if store.items.length === 0}
@@ -601,6 +676,7 @@
           <div class="logo">ρ</div>
           <div>Ask Rho to read, write, edit or run something in <b>{shortenHome(store.state?.cwd ?? "")}</b>.</div>
           <div class="muted">Type / for commands.</div>
+          <div><button class="link" onclick={() => void openFolder("")}>Open another folder…</button></div>
         </div>
       {/if}
       {#each store.items as item (item.key)}
@@ -620,6 +696,7 @@
     busy={store.busy}
     aside={!!store.state?.aside}
     {commands}
+    files={(p) => Bridge.Files(p)}
     onsubmit={submit}
     oncancel={() => void Bridge.Cancel()}
   />
@@ -636,6 +713,7 @@
     onmodel={() => void runCommand("/model")}
   />
 </main>
+{/if}
 
 {#if picker}
   <Picker
@@ -653,6 +731,7 @@
 
 <style>
   main {
+    position: relative;
     height: 100%;
     display: flex;
     flex-direction: column;
@@ -685,6 +764,16 @@
   }
   .muted {
     color: var(--fg-faint);
+  }
+  .link {
+    margin-top: 10px;
+    border: none;
+    background: none;
+    color: var(--link);
+    padding: 0;
+  }
+  .link:hover {
+    text-decoration: underline;
   }
   .queue {
     color: var(--fg-muted);

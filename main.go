@@ -7,7 +7,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -69,20 +72,26 @@ func run() error {
 		return err
 	}
 
-	a, err := app.New(app.Options{
-		Cwd:          cwd,
+	opts := app.Options{
 		Model:        *model,
-		Continue:     *cont,
-		SessionFile:  *sessionF,
 		Version:      version,
 		NoExtensions: *noExt,
-	})
-	if err != nil {
-		return err
+	}
+	if !*noExt {
+		opts.ExtHost = extHost()
+	}
+	open := func(dir string, first bool) (*app.App, error) {
+		o := opts
+		o.Cwd = dir
+		if first {
+			o.Continue = *cont
+			o.SessionFile = *sessionF
+		}
+		return app.New(o)
 	}
 
 	h := &host{}
-	b := bridge.New(a, h)
+	b := bridge.New(h, open, cwd)
 	wapp := application.New(application.Options{
 		Name:        "Rho",
 		Description: "A minimal-core coding agent",
@@ -91,15 +100,15 @@ func run() error {
 		Mac:         application.MacOptions{ApplicationShouldTerminateAfterLastWindowClosed: true},
 	})
 	h.app.Store(wapp)
-	wapp.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "Rho · " + filepath.Base(cwd),
+	h.win.Store(wapp.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:            bridge.WindowTitle(cwd),
 		Width:            1100,
 		Height:           780,
 		MinWidth:         480,
 		MinHeight:        360,
 		BackgroundColour: application.NewRGB(29, 32, 33),
 		URL:              "/",
-	})
+	}))
 	return wapp.Run()
 }
 
@@ -130,9 +139,39 @@ func workDir(arg string) (string, error) {
 	return cwd, err
 }
 
+// extHost finds a rho binary to run Go source extensions: next to this
+// executable, else on PATH when it has the same version. Starting rho-gui
+// itself as the extension host works too, but loads the GUI libraries in
+// every extension process. It returns "" (use this executable) when no
+// matching rho is found.
+func extHost() string {
+	name := "rho"
+	if runtime.GOOS == "windows" {
+		name = "rho.exe"
+	}
+	if exe, err := os.Executable(); err == nil {
+		if exe, err = filepath.EvalSymlinks(exe); err == nil {
+			sibling := filepath.Join(filepath.Dir(exe), name)
+			if info, err := os.Stat(sibling); err == nil && !info.IsDir() {
+				return sibling
+			}
+		}
+	}
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return ""
+	}
+	out, err := exec.Command(path, "--version").Output()
+	if err != nil || strings.TrimSpace(string(out)) != "rho version "+version {
+		return ""
+	}
+	return path
+}
+
 // host adapts the Wails application to bridge.Host.
 type host struct {
 	app atomic.Pointer[application.App]
+	win atomic.Pointer[application.WebviewWindow]
 }
 
 func (h *host) Emit(name string, data any) {
@@ -144,4 +183,35 @@ func (h *host) Emit(name string, data any) {
 func (h *host) SetClipboard(text string) bool {
 	a := h.app.Load()
 	return a != nil && a.Clipboard.SetText(text)
+}
+
+func (h *host) SetTitle(title string) {
+	if w := h.win.Load(); w != nil {
+		w.SetTitle(title)
+	}
+}
+
+func (h *host) ChooseFolder(title, dir string) (string, error) {
+	a := h.app.Load()
+	if a == nil {
+		return "", errors.New("the window is not ready")
+	}
+	d := a.Dialog.OpenFile().
+		CanChooseDirectories(true).
+		CanChooseFiles(false).
+		CanCreateDirectories(true).
+		SetTitle(title).
+		SetDirectory(dir)
+	if w := h.win.Load(); w != nil {
+		d.AttachToWindow(w)
+	}
+	return d.PromptForSingleSelection()
+}
+
+func (h *host) OpenFile(path string) error {
+	a := h.app.Load()
+	if a == nil {
+		return errors.New("the window is not ready")
+	}
+	return a.Browser.OpenFile(path)
 }

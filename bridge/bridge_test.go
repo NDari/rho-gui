@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +20,8 @@ type fakeHost struct {
 	events    []map[string]any
 	uiReqs    chan UIRequest
 	clipboard string
+	title     string
+	folder    string
 }
 
 func newFakeHost() *fakeHost { return &fakeHost{uiReqs: make(chan UIRequest, 4)} }
@@ -46,6 +50,16 @@ func (h *fakeHost) SetClipboard(text string) bool {
 	return true
 }
 
+func (h *fakeHost) SetTitle(title string) {
+	h.mu.Lock()
+	h.title = title
+	h.mu.Unlock()
+}
+
+func (h *fakeHost) ChooseFolder(title, dir string) (string, error) { return h.folder, nil }
+
+func (h *fakeHost) OpenFile(path string) error { return nil }
+
 // waitFor waits until an event of type typ arrived and returns all events.
 func (h *fakeHost) waitFor(t *testing.T, typ string) []map[string]any {
 	t.Helper()
@@ -66,17 +80,27 @@ func (h *fakeHost) waitFor(t *testing.T, typ string) []map[string]any {
 	return nil
 }
 
+// testOpener opens projects with the fake provider answering steps.
+func testOpener(steps ...fake.Step) Opener {
+	return func(dir string, first bool) (*app.App, error) {
+		a, err := app.New(app.Options{Cwd: dir, Model: "openai/test-model", NoExtensions: true})
+		if err != nil {
+			return nil, err
+		}
+		a.Registry.Set("openai", fake.New("openai", steps...))
+		return a, nil
+	}
+}
+
 func newTestBridge(t *testing.T, steps ...fake.Step) (*Bridge, *fakeHost) {
 	t.Helper()
 	t.Setenv("RHO_HOME", t.TempDir())
-	a, err := app.New(app.Options{Cwd: t.TempDir(), Model: "openai/test-model", NoExtensions: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	a.Registry.Set("openai", fake.New("openai", steps...))
 	h := newFakeHost()
-	b := New(a, h)
+	b := New(h, testOpener(steps...), t.TempDir())
 	t.Cleanup(b.close)
+	if info := b.Startup(); info.Error != "" {
+		t.Fatal(info.Error)
+	}
 	return b, h
 }
 
@@ -124,7 +148,7 @@ func TestSessionsAndBranching(t *testing.T) {
 			t.Fatal(err)
 		}
 		h.waitFor(t, "turn_end")
-		b.app.Agent.Wait()
+		b.core().Agent.Wait()
 	}
 
 	targets := b.RewindTargets()
@@ -221,5 +245,66 @@ func TestSettingsLeaveOutTUIOnlyKeys(t *testing.T) {
 	}
 	if keys["theme"] || keys["tui.mouse_select"] || !keys["tui.show_thinking"] || !keys["max_retries"] {
 		t.Errorf("settings = %v", keys)
+	}
+}
+
+func TestStartupErrorAndRetry(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("RHO_HOME", home)
+	cfg := filepath.Join(home, "config.toml")
+	if err := os.WriteFile(cfg, []byte("not [valid toml"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := newFakeHost()
+	dir := t.TempDir()
+	b := New(h, testOpener(), dir)
+	t.Cleanup(b.close)
+
+	info := b.Startup()
+	if info.Error == "" || info.Dir != dir || info.ConfigPath != cfg {
+		t.Fatalf("startup = %+v", info)
+	}
+	if err := b.Retry(); err == nil {
+		t.Fatal("Retry succeeded with a broken config")
+	}
+	if err := os.Remove(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Retry(); err != nil {
+		t.Fatal(err)
+	}
+	if info := b.Startup(); info.Error != "" {
+		t.Errorf("startup after retry = %+v", info)
+	}
+	if b.State().Cwd != dir || h.title != WindowTitle(dir) {
+		t.Errorf("cwd %q, title %q", b.State().Cwd, h.title)
+	}
+}
+
+func TestOpenAndFiles(t *testing.T) {
+	b, h := newTestBridge(t)
+	first := b.State().SessionPath
+
+	other := t.TempDir()
+	if err := os.WriteFile(filepath.Join(other, "README.md"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.folder = other
+	dir, err := b.ChooseFolder()
+	if err != nil || dir != other {
+		t.Fatalf("ChooseFolder = %q, %v", dir, err)
+	}
+	if err := b.Open(filepath.Join(other, "README.md")); err == nil {
+		t.Error("Open accepted a file")
+	}
+	if err := b.Open(dir); err != nil {
+		t.Fatal(err)
+	}
+	s := b.State()
+	if s.Cwd != other || s.SessionPath == first || h.title != WindowTitle(other) {
+		t.Errorf("after Open: state %+v, title %q", s, h.title)
+	}
+	if got := b.Files("RE"); len(got) != 1 || got[0] != "README.md" {
+		t.Errorf("Files = %q", got)
 	}
 }
