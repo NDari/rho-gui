@@ -35,7 +35,7 @@
       </details>
     {/if}
     {#if item.text}
-      <Markdown src={item.text} />
+      <Markdown src={item.text} streaming={item.streaming} />
     {/if}
     {#if item.composing}
       <div class="muted">Preparing {item.composing}…</div>
