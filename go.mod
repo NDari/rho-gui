@@ -3,7 +3,7 @@ module github.com/NDari/rho-gui
 go 1.27.4
 
 require (
-	github.com/NDari/rho v0.3.0
+	github.com/NDari/rho v0.4.0
 	github.com/wailsapp/wails/v3 v3.1.0
 	golang.org/x/sys v0.50.0
 )
