@@ -1,3 +1,8 @@
+Rho GUI moved back into [NDari/rho](https://github.com/NDari/rho). Download the GUI from its releases.
+
+rho-gui 0.4.0 installs can't move over by themselves either way. Reinstall from the rho-gui_* file or
+Rho_0.5.0_macos.zip in the rho release.
+
 # Rho GUI
 
 `rho-gui` is a desktop frontend for [Rho](https://github.com/NDari/rho), a minimal coding agent. It uses the same configuration, sessions, skills, prompt templates and extensions as the `rho` command, so you can move between the two: a session started in the terminal can be resumed in the GUI and the other way around.
